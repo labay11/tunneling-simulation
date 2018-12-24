@@ -13,12 +13,6 @@ import scipy.integrate as integrate
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-#from matplotlib import rc
-#rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
-## for Palatino and other serif fonts use:
-#rc('font',**{'family':'serif','serif':['Palatino']})
-#rc('text', usetex=True)
-
 current_milli_time = lambda: int(round(time.time() * 1000))
 
 def format_float_to_filename(x, tmpl):
@@ -29,12 +23,12 @@ def get_filename(tmp, V0, L, l):
 	a = '%.2f_%.2f_%.2f' % (V0, L, l)
 	return tmp % a.replace('.', '_')
 
-FILE_ENERGIES = 'engs/energies_%s.txt'
+FILE_ENERGIES = 'energies/energies_%s.txt'
 FILE_PHI = 'phis/phi_%s.txt'
 FILE_TIMES = 'times/times_%s.txt'
 
-if not os.path.exists('engs'):
-	os.makedirs('engs')
+if not os.path.exists('energies'):
+	os.makedirs('energies')
 if not os.path.exists('phis'):
 	os.makedirs('phis')
 if not os.path.exists('times'):
@@ -75,8 +69,8 @@ class Tunneling(object):
 
 		self.dx = dx
 		self.Nx = int(2 * self.L / self.dx)
-		self.Nx1 = int((L - l) / dx)
-		self.Nx2 = int(2 * l / dx)
+		self.Nx1 = int((self.L - self.l) / self.dx)
+		self.Nx2 = int(2 * self.l / self.dx)
 		self.Nx3 = self.Nx1
 		self.X = np.linspace(-self.L, self.L, self.Nx)
 
@@ -107,25 +101,40 @@ class Tunneling(object):
 		return np.sqrt(E-self.V0)*np.cos(k*np.sqrt(E-self.V0)*self.l)*np.sin(k*np.sqrt(E)*(self.L-self.l)) + \
 			np.sqrt(E)*np.sin(k*np.sqrt(E-self.V0)*self.l)*np.cos(k*np.sqrt(E)*(self.L-self.l))
 
+	def _even_n(self, E):
+		return np.sqrt(E - self.V0)*np.sin(k*np.sqrt(E-self.V0)*self.l)*np.tanh(k*np.sqrt(-E)*(self.L-self.l)) + \
+			np.sqrt(-E)*np.cos(k*np.sqrt(E-self.V0)*self.l)
+
+	def _odd_n(self, E):
+		return np.sqrt(E - self.V0)*np.cos(k*np.sqrt(E-self.V0)*self.l)*np.tanh(k*np.sqrt(-E)*(self.L-self.l)) - \
+			np.sqrt(-E)*np.sin(k*np.sqrt(E-self.V0)*self.l)
+
 	def find_energies(self):
 		# not very optimized, almost 30s to complete on a good computer
-		E = self.dE
+		E = 0 if self.V0 >= 0 else self.V0
 
 		Ep = [] # energy of the states
 		i = 0 # number of states
 
-		last_even, last_odd = self._even_l(0), self._odd_l(0)
+		last_even, last_odd = 0, 0
 
 		print('Start root finding...', end=' ')
 		start = current_milli_time()
 
-		while E < self.V0 and i < self.Ne:
-			e, o = self._even_l(E), self._odd_l(E)
+		while i < self.Ne:
+			if E < 0:
+				#print('Entered in n', i)
+				e, o = self._even_n(E), self._odd_n(E)
+			elif E < self.V0:
+				#print('Entered in l', i)
+				e, o = self._even_l(E), self._odd_l(E)
+			else:
+				#print('Entered in g', i)
+				e, o = self._even_g(E), self._odd_g(E)
 
 			if e * last_even < 0: # change of sign, root found
-				# a better approximation must be using the medium value between both???
-				Ep.append(E - self.dE/2) 
-				# Ep.append(E)
+				# approximate the root by the medium value
+				Ep.append(E - self.dE/2) 	# Ep.append(E)
 				i+=1
 
 			# cannot join both if because in that case multiplicities will not be counted
@@ -136,30 +145,13 @@ class Tunneling(object):
 			last_even, last_odd = e, o
 			E += self.dE
 
-		# not important tihs step, its also good to use the last values obtained
-		last_even, last_odd = self._even_g(self.V0), self._odd_g(self.V0)
-
-		while i < self.Ne:
-			e, o = self._even_g(E), self._odd_g(E)
-
-			if e * last_even < 0: # change of sign, root found
-				Ep.append(E)
-				i+=1
-
-			if o * last_odd < 0: # change of sign, root found
-				Ep.append(E)
-				i+=1
-
-			last_even, last_odd = e, o
-			E += self.dE
-
 		print('OK (%.2f s)' % ((current_milli_time() - start) / 1000))
 
-		return sorted(Ep)
+		return np.array(sorted(Ep)) # assume even and ood energies are intercalated
 
 	def save_energies(self, E):
 		with open(get_filename(FILE_ENERGIES, self.V0, self.L, self.l), 'w') as outf:
-			for k in xrange(len(E)):
+			for k in range(len(E)):
 				outf.write('%d\t%.4g\n' % (k, E[k]))
 
 	def read_energies(self):
@@ -203,12 +195,38 @@ class Tunneling(object):
 			return -np.sin(k*np.sqrt(E)*(self.L-self.l))*np.sin(k*np.sqrt(E-self.V0)*x)/(np.sin(k*np.sqrt(E-self.V0)*self.l))
 		elif reg == 3:
 			return np.sin(k*np.sqrt(E)*(x-self.L))
-	
-	def phi_odd(self, reg, E, x):
-		return self._phi_odd_g(reg, E, x) if E > self.V0 else self._phi_odd_l(reg, E, x)
 
+	def _phi_even_n(self, reg, E, x):
+		if reg == 1:
+			return np.sinh(k*np.sqrt(-E)*(x+self.L))
+		elif reg == 2:
+			return np.sinh(k*np.sqrt(-E)*(self.L-self.l))*np.cos(k*np.sqrt(E-self.V0)*x)/(np.cos(k*np.sqrt(E-self.V0)*self.l))
+		elif reg == 3:
+			return -np.sinh(k*np.sqrt(-E)*(x-self.L))
+
+	def _phi_odd_n(self, reg, E, x):
+		if reg == 1:
+			return np.sinh(k*np.sqrt(-E)*(x+self.L))
+		elif reg == 2:
+			return -np.sinh(k*np.sqrt(-E)*(self.L-self.l))*np.sin(k*np.sqrt(E-self.V0)*x)/(np.sin(k*np.sqrt(E-self.V0)*self.l))
+		elif reg == 3:
+			return np.sinh(k*np.sqrt(-E)*(x-self.L))
+	
 	def phi_even(self, reg, E, x):
-		return self._phi_even_g(reg, E, x) if E > self.V0 else self._phi_even_l(reg, E, x)
+		if E < 0:
+			return self._phi_even_n(reg, E, x)
+		elif E < self.V0:
+			return self._phi_even_l(reg, E, x)
+		else:
+			return self._phi_even_g(reg, E, x)
+
+	def phi_odd(self, reg, E, x):
+		if E < 0:
+			return self._phi_odd_n(reg, E, x)
+		elif E < self.V0:
+			return self._phi_odd_l(reg, E, x)
+		else:
+			return self._phi_odd_g(reg, E, x)
 
 	def evaluate_wave_function(self, save=False):
 		# wave function matrix
@@ -217,7 +235,7 @@ class Tunneling(object):
 		# define the 3 difference regions for x
 		x1, x2, x3 = np.linspace(-self.L, -self.l, self.Nx1), np.linspace(-self.l, self.l, self.Nx2), np.linspace(self.l, self.L, self.Nx3) 
 
-		for i in xrange(self.Ne): # loop over states
+		for i in range(self.Ne): # loop over states
 			E = self.Ep[i] 
 			if i % 2 == 0:
 				PHI[i, :self.Nx1] = self.phi_even(1, E, x1)
@@ -229,7 +247,7 @@ class Tunneling(object):
 				PHI[i, self.Nx1+self.Nx2:] = self.phi_odd(3, E, x3)
 
 			# normalise the wave function (as a discrete sum)
-			PHI[i] /= np.sqrt(np.sum(PHI[i] * PHI[i]) * self.dx)
+			PHI[i] /= np.sqrt(np.sum(PHI[i]**2) * self.dx)
 
 		if save:
 			np.savetxt(get_filename(FILE_PHI, self.V0, self.L, self.l), PHI.transpose(), fmt='%10.4f', delimiter='\t')
@@ -249,19 +267,17 @@ class Tunneling(object):
 		return np.exp(1j * k * np.sqrt(self.T) * x) * func(x)
 
 	def expand_function(self, f):
-		C = np.zeros(self.Ne, dtype=complex)
-		for i in xrange(self.Ne):
-			C[i] = np.sum(self.PHI[i] * f) * self.dx # discrete sum as an approximation to the integral
-		return C
+		# discrete sum as an approximation to the integral
+		return np.sum(self.PHI * f, axis=1) * self.dx
 
 	def time_evolution(self, coef, t_max, dt):
 		Nt = int(t_max / dt)
 		times = np.zeros((Nt, self.Nx))
 
-		for i in xrange(Nt):
-			t = i * dt
+		for k in range(Nt):
+			t = k * dt
 
-			times[i] = np.abs(np.sum(self.PHI[i] * coef[i] * np.exp(-1j * self.Ep[i] * t / hbar) for i in xrange(self.Ne)))**2
+			times[k] = np.abs(np.dot(coef * np.exp(-1j * self.Ep * t / hbar), self.PHI))**2
 
 		return times
 
@@ -287,8 +303,14 @@ class Tunneling(object):
 		return np.sum(p * f(self.X)) * self.dx
 
 	def plot(self, times, T_MAX, dt, filename=None, interval=50):
+
 		X2 = self.X**2
 		Emax = 20.0
+
+		if self.V0 < 0:
+			zerox = -self.V0 / (Emax - self.V0)
+		else:
+			zerox = 0
 
 		def expected_x(ts):
 			return np.sum(ts * self.X) * self.dx
@@ -306,7 +328,7 @@ class Tunneling(object):
 		print('<H> = %.5f +/- %.5f' % (expE, sigE))
 
 		# scale factor for energy 
-		expE /= Emax
+		expE = expE/Emax + zerox 
 		sigE /= Emax
 
 		Nt = int(T_MAX / dt)
@@ -334,11 +356,11 @@ class Tunneling(object):
 		ax1.set_ylim(0, 1)
 
 		ax2 = ax1.twinx()
-		ax2.set_ylim(0, Emax)
+		ax2.set_ylim(min(0, self.V0), Emax)
 		ax2.set_ylabel(r'$E\ (eV)$')
 
 		# plot potential
-		ax1.plot([-self.L, -self.L, -self.l, -self.l, self.l, self.l, self.L, self.L], [1, 0, 0, self.V0/Emax, self.V0/Emax, 0, 0, 1], c='k', lw=0.8)
+		ax1.plot([-self.L, -self.L, -self.l, -self.l, self.l, self.l, self.L, self.L], [1, zerox, zerox, self.V0/Emax, self.V0/Emax, zerox, zerox, 1], c='k', lw=2)
 		
 		line1 = ax1.plot([], [], color='b', lw=0.8, animated=True)[0]
 		line2 = ax1.plot([], [], c='r', lw=0.8)[0]
@@ -358,7 +380,7 @@ class Tunneling(object):
 def get_args():
 	import argparse
 
-	parser = argparse.ArgumentParser(description='Quantumm tunneling effect.')
+	parser = argparse.ArgumentParser(description='Quantum tunneling effect.')
 	parser.add_argument('V0', metavar='V0', type=float,
 	                    help='height of the barrier in eV')
 	parser.add_argument('L', metavar='L', type=float,
