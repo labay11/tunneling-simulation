@@ -39,7 +39,7 @@ hbar = 6.582e-4			# h barra (eV · ps)
 
 class Tunneling(object):
 
-	def __init__(self, V0, L, l, xi, sigmax, T, Ne=256, dE=0.0001, dx=0.01):
+	def __init__(self, V0, L, l, T, xi, sigmax, Ne=256, dE=0.0001, dx=0.01):
 		'''
 			Tunneling class to simulate experiments on the tunneling effect
 			due to a potential barrier of width 2l located at the center
@@ -48,10 +48,10 @@ class Tunneling(object):
 			:float V0: height f the potential barrier in eV
 			:float L: half length of the box in nm
 			:float l: half length of the potentil barrier in nm
+			:float T: energy of the kick in eV
 			:float xi: initial position of the gaussian wave packed,
 						must be between [-L, L]
 			:float sigmax: width of the gaussian wave packet
-			:float T: energy of the kick in eV
 			:int Ne: number of energies to consider
 			:float dE: interval between energies
 			:float dx: space step
@@ -409,5 +409,6 @@ if __name__ == '__main__':
 	args = get_args()
 
 	tun = Tunneling(args.V0, args.L, args.l, args.T, args.xi, args.sx)
+	tun.print_info()
 	times = tun.experiment(args.TMAX, args.dt)
 	tun.plot(times, args.TMAX, args.dt, args.filename)

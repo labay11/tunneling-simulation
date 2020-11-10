@@ -17,6 +17,7 @@ You can use it using the command line as `python tunneling.py V0 L l T xi sigmax
         --filename filename  animation destination file
 
 Or you can import the script to your project and use it to create a new tunneling class
+
 ```python
 tun = Tunneling(V0, L, l, T, xi, sx)
 times = tun.experiment(TMAX, dt)
@@ -24,6 +25,7 @@ tun.plot(times, TMAX, dt, filename='somewhere/over/the/rainbow')
 ```
 
 Example with a potential barrier of `5 eV` and a kick of intensity `4 eV`
+
 ![N|Solid](/examples/5_00_4_00.png)
 
 # License
