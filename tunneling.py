@@ -11,7 +11,7 @@ import time
 import os
 import scipy.integrate as integrate
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+from matplotlib.animation import FuncAnimation, FFMpegWriter
 
 current_milli_time = lambda: int(round(time.time() * 1000))
 
@@ -39,7 +39,7 @@ hbar = 6.582e-4			# h barra (eV · ps)
 
 class Tunneling(object):
 
-	def __init__(self, V0, L, l, T, xi, sigmax, Ne=256, dE=0.0001, dx=0.01):
+	def __init__(self, V0, L, l, xi, sigmax, T, Ne=256, dE=0.0001, dx=0.01):
 		'''
 			Tunneling class to simulate experiments on the tunneling effect
 			due to a potential barrier of width 2l located at the center
@@ -48,10 +48,10 @@ class Tunneling(object):
 			:float V0: height f the potential barrier in eV
 			:float L: half length of the box in nm
 			:float l: half length of the potentil barrier in nm
-			:float T: energy of the kick in eV
 			:float xi: initial position of the gaussian wave packed,
 						must be between [-L, L]
 			:float sigmax: width of the gaussian wave packet
+			:float T: energy of the kick in eV
 			:int Ne: number of energies to consider
 			:float dE: interval between energies
 			:float dx: space step
@@ -151,8 +151,8 @@ class Tunneling(object):
 
 	def save_energies(self, E):
 		with open(get_filename(FILE_ENERGIES, self.V0, self.L, self.l), 'w') as outf:
-			for j in range(len(E)):
-				outf.write('%d\t%.4g\n' % (j, E[j]))
+			for k in range(len(E)):
+				outf.write('%d\t%.4g\n' % (k, E[k]))
 
 	def read_energies(self):
 		Ep = []
@@ -274,10 +274,10 @@ class Tunneling(object):
 		Nt = int(t_max / dt)
 		times = np.zeros((Nt, self.Nx))
 
-		for j in range(Nt):
-			t = j * dt
+		for k in range(Nt):
+			t = k * dt
 
-			times[j] = np.abs(np.dot(coef * np.exp(-1j * self.Ep * t / hbar), self.PHI))**2
+			times[k] = np.abs(np.dot(coef * np.exp(-1j * self.Ep * t / hbar), self.PHI))**2
 
 		return times
 
@@ -368,11 +368,13 @@ class Tunneling(object):
 
 		text = ax1.text(-self.L + 0.02, 0.96, '', fontsize=9)
 
-		ani = FuncAnimation(fig, update, fargs=(self.X, times, [line1, line2, line3, text]), frames=np.linspace(0, T_MAX, Nt),
+		ani = FuncAnimation(fig, update, fargs=(self.X, times, [line1, line2, line3, text]),
+							frames=np.linspace(0, T_MAX, Nt),
 		                    blit=True, interval=interval, repeat=False)
 
 		if filename is not None:
-			ani.save(filename, fps=20, writer="avconv", codec="libx264")
+			writervideo = FFMpegWriter(fps=60)
+			ani.save(filename, writer=writervideo)
 			print('Plot saved as', filename)
 		else:
 			plt.show()
@@ -407,6 +409,5 @@ if __name__ == '__main__':
 	args = get_args()
 
 	tun = Tunneling(args.V0, args.L, args.l, args.T, args.xi, args.sx)
-	tun.print_info()
 	times = tun.experiment(args.TMAX, args.dt)
 	tun.plot(times, args.TMAX, args.dt, args.filename)
